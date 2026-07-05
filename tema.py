@@ -901,7 +901,8 @@ class MainWindow(QMainWindow):
         img_id, filename, description = self.current_images[index]
         self.current_image_id = img_id
         
-        if self.user_role == "admin" and hasattr(self, 'desc_text'):
+        # Загружаем описание для любой роли
+        if hasattr(self, 'desc_text'):
             self.desc_text.setPlainText(description if description else "")
         
         self.update_status(f"⏳ Загрузка: {filename}")
@@ -1193,25 +1194,33 @@ class MainWindow(QMainWindow):
         
         right_layout.addWidget(self.image_scroll, 1)
         
+        # Блок описания (доступен для всех ролей)
+        desc_frame = QFrame()
+        desc_layout = QVBoxLayout(desc_frame)
+        desc_layout.setContentsMargins(10, 10, 10, 10)
+        
+        desc_title = QLabel("📝 Описание изображения:")
+        desc_title.setStyleSheet("font-weight: bold;")
+        desc_layout.addWidget(desc_title)
+        
+        self.desc_text = QTextEdit()
+        self.desc_text.setMaximumHeight(120)
+        
+        # Настройка в зависимости от роли
         if self.user_role == "admin":
-            desc_frame = QFrame()
-            desc_layout = QVBoxLayout(desc_frame)
-            desc_layout.setContentsMargins(10, 10, 10, 10)
-            
-            desc_title = QLabel("📝 Описание изображения:")
-            desc_title.setStyleSheet("font-weight: bold;")
-            desc_layout.addWidget(desc_title)
-            
-            self.desc_text = QTextEdit()
-            self.desc_text.setMaximumHeight(120)
             self.desc_text.setPlaceholderText("Введите описание изображения...")
-            desc_layout.addWidget(self.desc_text)
+        else:
+            self.desc_text.setReadOnly(True)
             
+        desc_layout.addWidget(self.desc_text)
+        
+        # Кнопка сохранения только для админа
+        if self.user_role == "admin":
             self.save_desc_btn = QPushButton("💾 Сохранить описание")
             self.save_desc_btn.clicked.connect(self.save_description)
             desc_layout.addWidget(self.save_desc_btn)
-            
-            right_layout.addWidget(desc_frame)
+        
+        right_layout.addWidget(desc_frame)
         
         splitter.addWidget(right_widget)
 
