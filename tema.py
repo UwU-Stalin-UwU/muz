@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QScrollArea, QFrame, QMessageBox, QFileDialog,
     QTextEdit, QSplitter, QDialog, QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
 from PyQt6.QtGui import QPixmap, QImage, QFont, QKeySequence, QAction
 
 
@@ -616,7 +616,6 @@ class MainWindow(QMainWindow):
         self.image_threads = []
         self.thumbnail_threads = []
         
-        self.lock_timer = None
         self.resize_timer = None
         self.status_timer = None
         
@@ -626,9 +625,6 @@ class MainWindow(QMainWindow):
         
         # Настройка горячих клавиш
         self.setup_shortcuts()
-        
-        if self.user_role == "user":
-            self.setup_user_timer()
     
     def setup_shortcuts(self):
         """Настройка горячих клавиш"""
@@ -644,6 +640,12 @@ class MainWindow(QMainWindow):
     
     def toggle_fullscreen(self):
         """Переключение полноэкранного режима"""
+        # Для пользователя требуем пароль админа перед переключением
+        if self.user_role == "user":
+            dialog = PasswordDialog(self.db)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+        
         if self.is_fullscreen:
             self.exit_fullscreen()
         else:
@@ -688,35 +690,6 @@ class MainWindow(QMainWindow):
                 self.current_display_pixmap = scaled_pixmap
                 self.image_label.setPixmap(scaled_pixmap)
                 self.image_label.setText("")
-    
-    def setup_user_timer(self):
-        """Настройка таймера для пользователя"""
-        self.lock_timer = QTimer()
-        self.lock_timer.setSingleShot(True)
-        self.lock_timer.timeout.connect(self.lock_app)
-        self.reset_lock_timer()
-    
-    def reset_lock_timer(self):
-        """Сброс таймера блокировки"""
-        if self.user_role == "user" and self.lock_timer and not self._is_closing:
-            self.lock_timer.start(120000)
-    
-    def lock_app(self):
-        """Блокировка приложения"""
-        if self.user_role == "user" and not self._is_closing:
-            was_fullscreen = self.is_fullscreen
-            if was_fullscreen:
-                self.exit_fullscreen()
-            
-            self.hide()
-            dialog = PasswordDialog(self.db)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                self.show()
-                if was_fullscreen:
-                    self.enter_fullscreen()
-                self.reset_lock_timer()
-            else:
-                self.close()
     
     def setDarkTheme(self):
         self.setStyleSheet("""
@@ -1087,14 +1060,39 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if not self._is_closing and self.current_image_id and self.current_image_pixmap:
             self.update_image_display()
+
+    def changeEvent(self, event):
+        """Обработка изменения состояния окна (сворачивание и т.д.)"""
+        if event.type() == QEvent.Type.WindowStateChange:
+            old_state = event.oldState()
+            new_state = self.windowState()
+            
+            # Проверяем, что окно было только что свёрнуто
+            if not (old_state & Qt.WindowState.WindowMinimized) and \
+               (new_state & Qt.WindowState.WindowMinimized):
+                if self.user_role == "user" and not self._is_closing:
+                    dialog = PasswordDialog(self.db)
+                    if dialog.exec() != QDialog.DialogCode.Accepted:
+                        # Отменяем сворачивание — восстанавливаем предыдущее состояние
+                        if old_state & Qt.WindowState.WindowMaximized:
+                            self.showMaximized()
+                        else:
+                            self.showNormal()
+                        return
+        super().changeEvent(event)
     
     def closeEvent(self, event):
         """Обработка закрытия окна"""
+        # Для пользователя требуем пароль админа перед закрытием
+        if self.user_role == "user" and not self._is_closing:
+            dialog = PasswordDialog(self.db)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                event.ignore()
+                return
+        
         if not self._is_closing:
             self._is_closing = True
             
-            if self.lock_timer:
-                self.lock_timer.stop()
             if self.resize_timer:
                 self.resize_timer.stop()
             if self.status_timer:
